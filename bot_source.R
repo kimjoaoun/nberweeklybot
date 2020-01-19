@@ -3,8 +3,9 @@ library(rvest)
 library(stringr)
 library(jsonlite)
 library(dplyr)
+library(magrittr)
 
-token_nber <- "YOUR BOT KEY"
+token_nber <- "YOUR KEY HERE"
 
 bot <- Bot(token = token_nber)
 
@@ -23,15 +24,6 @@ start <- function(bot, update) {
 start_handler <- CommandHandler("start", start)
 updater <- updater + start_handler
 
-### What to answer if the user enter a unknown command?
-
-unknown <- function(bot, update) {
-  bot$sendMessage(
-    chat_id = update$message$chat_id,
-    text = "Sorry, I didn't understand that command."
-  )
-}
-updater <- updater + MessageHandler(unknown, MessageFilters$command)
 
 ### Function to Collect the Newsletter
 
@@ -44,34 +36,26 @@ papers <- function(bot, update) {
     data.frame() %>%
     tibble::rowid_to_column()
 
-  nber_links <- nber_page %>%
-    html_nodes(xpath = "//a") %>%
-    html_attr("href") %>%
-    tibble()
-
-  names(nber_links) <- "lnks"
-  nber_links %<>%
-    filter(grepl("/papers/w", lnks))
-
-  nber_df <- bind_cols(nber_df, nber_links)
-  names(nber_df) <- c("id", "paper_title", "links")
+  names(nber_df) <- c("id", "paper_title")
 
   nber_df$paper_title <- str_replace_all(nber_df$paper_title, "[\r\n]", "|") %>% substring(2)
   nber_df$author <- str_extract(nber_df$paper_title, "\\|.*") %>% str_remove("\\|")
+  nber_df$links <- paste0("https://data.nber.org/papers/w", str_extract(nber_df$author, "\\d{1,7}"))
   nber_df$paper_title <- str_remove(nber_df$paper_title, "\\|.*")
   nber_df$tags <- str_extract(nber_df$author, "\\(.*?\\)")
   nber_df$author <- str_remove(nber_df$author, "\\(.*?\\)")
 
 
+
   bot$send_message(
     chat_id = update$message$chat_id,
-    text = paste("no.", nber_df$id,
+    text = toString(paste("no.", nber_df$id,
       ". The Working Paper:", nber_df$paper_title,
       ". That was written by:", nber_df$author,
       # "is tagged as:", nber_df$tags,    # I think showing the tags is useless but you don't, just uncomment this line.
       "and can be seen at:", nber_df$links,
       sep = " "
-    )
+    ))
   )
 }
 
@@ -92,9 +76,26 @@ whereisnber <- function(bot, update) {
 }
 updater <- updater + CommandHandler("whereis", whereisnber)
 
-updater$start_polling()
 
+### Download and send a working paper to the user using its number.
 
 getwp <- function(bot, update, args) {
-
+  if (nchar(args) > 6) {
+    bot$send_message(
+      chat_id = update$message$chat_id,
+      text = sprintf("You gave me the following message %s but I do not think it is a valid NBER paper identifier.", args)
+    )
+  } else {
+    bot$send_document(
+      chat_id = update$message$chat_id,
+      caption = "Here is your paper...",
+      document = paste0("https://data.nber.org/papers/w", args, ".pdf")
+    )
+  }
 }
+
+updater <- updater + CommandHandler("getwp", getwp, pass_args = TRUE)
+
+
+updater$start_polling()
+updater$stop_polling()
